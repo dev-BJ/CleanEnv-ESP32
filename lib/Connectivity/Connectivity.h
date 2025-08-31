@@ -5,14 +5,15 @@
 #include <WiFi.h>
 #include <nvs_flash.h>
 #include <PubSubClient.h>
-#define TINY_GSM_MODEM_SIM900
-#include <TinyGsmClient.h>
+// #define TINY_GSM_MODEM_SIM900
+// #include <TinyGsmClient.h>
 #include <HardwareSerial.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <Preferences.h>
+#include <GsmClient.h>
 
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer);
@@ -25,6 +26,8 @@ class MyCallbacks : public BLECharacteristicCallbacks {
 
 void saveCredentials();
 void loadCredentials();
+void saveGprsCredentials();
+void loadGprsCredentials();
 void setupBLE();
 bool connectWiFi();
 bool connectCellular();

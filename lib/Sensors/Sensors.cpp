@@ -60,9 +60,9 @@ void monitorSensors() {
   if (isnan(temperature)) {
     Serial.println("Error reading temperature!");
   } else {
-    Serial.print("Temperature: ");
-    Serial.print(temperature);
-    Serial.println(" °C");
+    // Serial.print("Temperature: ");
+    // Serial.print(temperature);
+    // Serial.println(" °C");
 
     // Control fans based on temperature
     if (temperature > TEMP_THRESHOLD) {
@@ -71,13 +71,13 @@ void monitorSensors() {
       shiftOut(SHIFT_DATA_PIN, SHIFT_CLOCK_PIN, MSBFIRST, fanState);
       digitalWrite(SHIFT_LATCH_PIN, LOW);
       digitalWrite(SHIFT_LATCH_PIN, HIGH);
-      Serial.println("Fans turned ON");
+      // Serial.println("Fans turned ON");
     } else {
       // Turn off all fans
       shiftOut(SHIFT_DATA_PIN, SHIFT_CLOCK_PIN, MSBFIRST, 0x00);
       digitalWrite(SHIFT_LATCH_PIN, LOW);
       digitalWrite(SHIFT_LATCH_PIN, HIGH);
-      Serial.println("Fans turned OFF");
+      // Serial.println("Fans turned OFF");
     }
   }
 
@@ -86,17 +86,17 @@ void monitorSensors() {
   selectMuxChannel(0);
   int voltageRaw = analogRead(MUX_SIG);
   voltage = (voltageRaw / 4095.0) * 3.3;  // Assuming 3.3V reference, adjust scaling for your sensor
-  Serial.print("Voltage Sensor: ");
-  Serial.print(voltage);
-  Serial.println(" V");
+  // Serial.print("Voltage Sensor: ");
+  // Serial.print(voltage);
+  // Serial.println(" V");
 
   // Read channel 1 (current sensor)
   selectMuxChannel(1);
   int currentRaw = analogRead(MUX_SIG);
   current = (currentRaw / 4095.0) * 3.3;  // Adjust scaling for your sensor (e.g., ACS712 might need different formula)
-  Serial.print("Current Sensor: ");
-  Serial.print(current);
-  Serial.println(" A");
+  // Serial.print("Current Sensor: ");
+  // Serial.print(current);
+  // Serial.println(" A");
 
   // Delay for next reading
   vTaskDelay(100 / portTICK_PERIOD_MS);  // 2 seconds

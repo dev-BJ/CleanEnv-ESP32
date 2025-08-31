@@ -92,9 +92,9 @@ void setup(){
     lcd.clear();
     lcd.setCursor(4,0);
     lcd.print("CleanEnv v0.1");
-    lcd.setCursor(0,1);
+    lcd.setCursor(2,1);
     lcd.print("Initializing...");
-    vTaskDelay(1000 / portTICK_PERIOD_MS); // Wait for 2 seconds
+    vTaskDelay(2000 / portTICK_PERIOD_MS); // Wait for 2 seconds
 
     lcd.createChar(0, signal0);
     lcd.createChar(1, signal1);
@@ -107,7 +107,7 @@ void setup(){
     xTaskCreatePinnedToCore(
         monitorConnectivityTask,   // Task function
         "MonitorConnectivity",     // Name of the task
-        6156,                      // Stack size in bytes
+        8192,                      // Stack size in bytes
         NULL,                      // Task input parameter
         1,                         // Priority of the task
         NULL,                      // Task handle
