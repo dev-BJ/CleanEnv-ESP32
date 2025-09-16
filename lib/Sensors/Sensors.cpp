@@ -3,6 +3,8 @@
 float voltage = 0.0;
 float current = 0.0;
 float temperature = 0.0;
+int offsetVoltage = 3.3 / 2; // Example offset for voltage sensor
+float sensitivity = 1000.0 / 185; // Example sensitivity for voltage sensor
 
 // If you don't have the library, you can implement manual SPI read below.
 
@@ -19,10 +21,12 @@ float temperature = 0.0;
 #define MUX_S1 0  // Select pin 1
 #define MUX_S2 2  // Select pin 2
 #define MUX_S3 15  // Select pin 3
-#define MUX_SIG 34 // Common signal pin (to ESP32 ADC, GPIO34 is ADC1_CH6)
+#define MUX_SIG 35 // Common signal pin (to ESP32 ADC, GPIO35 is ADC1_CH7)
+#define NUM_SENSORS 2 // Number of channels in HC4067
 
 // Temperature threshold to turn on fans (in Celsius)
-#define TEMP_THRESHOLD 100.0
+#define TEMP_THRESHOLD_1 100.00
+#define TEMP_THRESHOLD_2 120.00
 
 // Number of fans controlled by shift register (assuming 4 for example, bits 0-3)
 #define NUM_FANS 4
@@ -60,44 +64,54 @@ void monitorSensors() {
   if (isnan(temperature)) {
     Serial.println("Error reading temperature!");
   } else {
-    // Serial.print("Temperature: ");
-    // Serial.print(temperature);
-    // Serial.println(" °C");
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.println(" °C");
 
     // Control fans based on temperature
-    if (temperature > TEMP_THRESHOLD) {
+    if (temperature > TEMP_THRESHOLD_1) {
       // Turn on all fans (set bits 0 to NUM_FANS-1 high)
       uint8_t fanState = (1 << NUM_FANS) - 1;  // e.g., 0x0F for 4 fans
       shiftOut(SHIFT_DATA_PIN, SHIFT_CLOCK_PIN, MSBFIRST, fanState);
       digitalWrite(SHIFT_LATCH_PIN, LOW);
       digitalWrite(SHIFT_LATCH_PIN, HIGH);
-      // Serial.println("Fans turned ON");
+      // digitalWrite(LED_BUILTIN, HIGH); // Turn on built-in LED when fans are on
+      Serial.println("Fans turned ON");
     } else {
       // Turn off all fans
       shiftOut(SHIFT_DATA_PIN, SHIFT_CLOCK_PIN, MSBFIRST, 0x00);
       digitalWrite(SHIFT_LATCH_PIN, LOW);
       digitalWrite(SHIFT_LATCH_PIN, HIGH);
-      // Serial.println("Fans turned OFF");
+      // digitalWrite(LED_BUILTIN, LOW); // Turn off built-in LED when fans are off
+      Serial.println("Fans turned OFF");
     }
   }
 
   // Read analog sensors via HC4067
   // Example: Read channel 0 (voltage sensor)
-  selectMuxChannel(0);
-  int voltageRaw = analogRead(MUX_SIG);
-  voltage = (voltageRaw / 4095.0) * 3.3;  // Assuming 3.3V reference, adjust scaling for your sensor
-  // Serial.print("Voltage Sensor: ");
-  // Serial.print(voltage);
-  // Serial.println(" V");
+  for (int channel = 0; channel < NUM_SENSORS; channel++) {
+    selectMuxChannel(channel);
+    vTaskDelay(10 / portTICK_PERIOD_MS); // Small delay for settling
 
-  // Read channel 1 (current sensor)
-  selectMuxChannel(1);
-  int currentRaw = analogRead(MUX_SIG);
-  current = (currentRaw / 4095.0) * 3.3;  // Adjust scaling for your sensor (e.g., ACS712 might need different formula)
-  // Serial.print("Current Sensor: ");
-  // Serial.print(current);
-  // Serial.println(" A");
+    int sensorValue = analogRead(MUX_SIG);
 
+    if (channel == 0) {
+      Serial.print("Sensor Value (Channel 0): ");
+      Serial.println(sensorValue);
+      voltage = (sensorValue / 4095.0) * 16.8; // Assign to voltage variable
+      Serial.print("Voltage Sensor (Channel 0): ");
+      Serial.print(voltage);
+      Serial.println(" V");
+    } else if (channel == 1) {
+      Serial.print("Sensor Value (Channel 1): ");
+      Serial.println(sensorValue);
+      float voltageValue = (sensorValue / 4095.0) * 16.8;
+      current = ((voltageValue - (16.8 / 2)) / sensitivity); // Assign to current variable (adjust as needed)
+      Serial.print("Current Sensor (Channel 1): ");
+      Serial.print(current);
+      Serial.println(" A");
+    }
+  }
   // Delay for next reading
   vTaskDelay(100 / portTICK_PERIOD_MS);  // 2 seconds
 }
@@ -112,6 +126,7 @@ void selectMuxChannel(int channel) {
 
 void monitorSensorsTask(void *pvParameters) {
   setupSensors();  // Initialize sensors and pins
+  pinMode(LED_BUILTIN, OUTPUT);
 
   while (1) {
     monitorSensors();  // Read and process sensor data
