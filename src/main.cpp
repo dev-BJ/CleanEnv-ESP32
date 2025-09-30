@@ -107,7 +107,7 @@ void setup(){
     xTaskCreatePinnedToCore(
         monitorConnectivityTask,   // Task function
         "MonitorConnectivity",     // Name of the task
-        8192,                      // Stack size in bytes
+        10000,                      // Stack size in bytes
         NULL,                      // Task input parameter
         1,                         // Priority of the task
         NULL,                      // Task handle
@@ -117,7 +117,7 @@ void setup(){
     xTaskCreatePinnedToCore(
         monitorSensorsTask,        // Task function
         "MonitorSensors",          // Name of the task
-        4096,                      // Stack size in bytes
+        10000,                      // Stack size in bytes
         NULL,                      // Task input parameter
         1,                         // Priority of the task
         NULL,                      // Task handle
@@ -147,7 +147,12 @@ void loop(){
         lcd.write(6); // Show no signal icon
         // lcd.print("No Network");
     }
-    String sensor = String("T:") + String(temperature, 1) + "C" + String(" V:") + String(voltage, 2) + "V" + String(" I:") + String(current, 2) + "A";
+    String sensor = String("T:") + String(doc["temp"].as<float>(), 1) + "C" + String(" V:") + String(doc["voltage"].as<float>(), 2) + "V" + String(" I:") + String(doc["current"].as<float>(), 2) + "A";
+    // String sensor = "";
+    // If 'doc' is an ArduinoJson::JsonDocument, iterate using JsonObject
+    // for (JsonPair kv : doc.as<JsonObject>()) {
+    //     sensor += " " + String(kv.key().c_str()) + ":" + String(kv.value().as<String>());
+    // }
     lcd.setCursor(0,1);
     lcd.print(sensor);
     if(sensor.length() > 20) {
@@ -156,6 +161,11 @@ void loop(){
     }
     lcd.setCursor(0,3);
     lcd.print("MQTT: " + String(mqttConnected ? "Connected" : "Disconnected"));
+
+    String data;
+    doc["uptime"] = String(millis() / 1000) + "s";
+    serializeJson(doc, data);
+    sendDataToMQTT(data);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 

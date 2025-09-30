@@ -34,6 +34,8 @@ float sensitivity = 1000.0 / 185; // Example sensitivity for voltage sensor
 // MAX6675 instance
 MAX6675 thermocouple(MAX_SCK_PIN, MAX_CS_PIN, MAX_MISO_PIN);
 
+JsonDocument doc;
+
 void setupSensors() {
   // Serial setup
 //   Serial.begin(115200);
@@ -60,6 +62,7 @@ void setupSensors() {
 void monitorSensors() {
   // Read temperature from MAX6675
   temperature = thermocouple.readCelsius();
+  doc["temp"] = temperature;
 
   if (isnan(temperature)) {
     Serial.println("Error reading temperature!");
@@ -99,7 +102,9 @@ void monitorSensors() {
       Serial.print("Sensor Value (Channel 0): ");
       Serial.println(sensorValue);
       voltage = (sensorValue / 4095.0) * 16.8; // Assign to voltage variable
+
       Serial.print("Voltage Sensor (Channel 0): ");
+      doc["voltage"] = voltage;
       Serial.print(voltage);
       Serial.println(" V");
     } else if (channel == 1) {
@@ -107,6 +112,7 @@ void monitorSensors() {
       Serial.println(sensorValue);
       float voltageValue = (sensorValue / 4095.0) * 16.8;
       current = ((voltageValue - (16.8 / 2)) / sensitivity); // Assign to current variable (adjust as needed)
+      doc["current"] = current;
       Serial.print("Current Sensor (Channel 1): ");
       Serial.print(current);
       Serial.println(" A");

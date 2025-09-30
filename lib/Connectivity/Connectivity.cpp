@@ -176,11 +176,13 @@ bool connectWiFi() {
     Serial.println("WiFi: No credentials");
     return false;
   }
+  esp_task_wdt_init((10000 / 1000), true); // Convert ms to seconds
+  esp_task_wdt_add(NULL); // Add current task to WDT
   WiFi.begin(ssid.c_str(), password.c_str());
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 10) {
     vTaskDelay(100 / portTICK_PERIOD_MS);
-    // esp_task_wdt_reset(); // Feed the watchdog
+    esp_task_wdt_reset(); // Feed the watchdog
     attempts++;
   }
   if (WiFi.status() == WL_CONNECTED) {
@@ -192,6 +194,7 @@ bool connectWiFi() {
   WiFi.disconnect();
   // Serial.println();
   Serial.println("WiFi connection failed");
+  esp_task_wdt_deinit(); // Disable the WDT
   return false;
 }
 
@@ -327,6 +330,7 @@ void monitorConnectivityTask(void *pvParameters) {
   loadCredentials();
   loadGprsCredentials();
   setupBLE();
+  
 
 
   while (1) {
@@ -344,7 +348,7 @@ void monitorConnectivityTask(void *pvParameters) {
     } else {
       mqttConnected = false;
     }
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
   }
 }
 
@@ -352,9 +356,9 @@ void sendDataToMQTT(const String& data) {
   if (activeConnection != "None" && mqttClient.connected()) {
     static unsigned long lastPublish = 0;
     if (millis() - lastPublish >= 10000) {
-      String payload = "Uptime: " + String(millis() / 1000) + "s, Data: " + data;
-      mqttClient.publish(publishTopic, payload.c_str());
-      Serial.println("Published to " + String(publishTopic) + ": " + payload);
+      // String payload = "Uptime: " + String(millis() / 1000) + "s, Data: " + data;
+      mqttClient.publish(publishTopic, data.c_str());
+      Serial.println("Published to " + String(publishTopic) + ": " + data);
       lastPublish = millis();
     }
   } else {
