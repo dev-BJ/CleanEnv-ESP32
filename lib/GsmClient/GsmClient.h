@@ -1,38 +1,67 @@
-#ifndef GSM_CLIENT_H
-#define GSM_CLIENT_H
+#ifndef GSMCLIENT_H
+#define GSMCLIENT_H
 
 #include <Arduino.h>
-#include <PubSubClient.h>
-#include <esp_task_wdt.h> // ESP32 watchdog timer
-#define GSM_DEBUG true
+#include <Client.h>      // Arduino Client base class
 
 class GsmClient : public Client {
 public:
-    GsmClient(Stream& serialPort);
-    int connect(IPAddress ip, uint16_t port) override;
-    int connect(const char* host, uint16_t port) override;
-    size_t write(uint8_t data) override;
-    size_t write(const uint8_t* buf, size_t size) override;
-    int available() override;
-    int read() override;
-    int read(uint8_t* buf, size_t size) override;
-    int peek() override;
-    void flush() override;
-    void stop() override;
-    uint8_t connected() override;
-    operator bool();
-    bool resetModem();
-    String sendCustomAT(const char* command, unsigned long timeout = 5000);
-    int csq();
-    void beginWdt(uint32_t timeout = 10000); // Initialize WDT with timeout (ms)
-    void feedWdt(); // Feed the WDT to prevent reset
-    void disableWdt(); // Disable the WDT
+  explicit GsmClient(HardwareSerial &serialPort);
+
+  // Set GPRS credentials (copies into internal buffers)
+  void setGprsCredentials(const char* apn, const char* user = "", const char* pass = "");
+
+  // Watchdog helpers (optional; used internally)
+  void beginWdt(uint32_t timeoutMs = 30000);
+  void feedWdt();
+  void disableWdt();
+
+  // Client interface (override)
+  virtual int connect(IPAddress ip, uint16_t port) override;
+  virtual int connect(const char *host, uint16_t port) override;
+
+  virtual size_t write(uint8_t) override;
+  virtual size_t write(const uint8_t *buf, size_t size) override;
+
+  virtual int available() override;
+  virtual int read() override;
+  virtual int read(uint8_t *buf, size_t size) override;
+  virtual int peek() override;
+  virtual void flush() override;
+  virtual void stop() override;
+  virtual uint8_t connected() override;
+  virtual operator bool() override;
+
+  // Additional utilities
+  void sendAT(const char *fmt, ...);
+  bool waitResponse(const char *expected, uint32_t timeoutMs = 5000);
+  String readResponse(uint32_t timeoutMs = 5000);
+  bool resetModem(uint32_t timeoutMs = 15000);
+  int csq();
+
 private:
-    Stream& serial;
-    bool isConnected;
-    void sendAT(const char* cmd, ...);
-    bool waitResponse(const char* expected = "OK");
-    String readResponse();
+  HardwareSerial &serial;
+  bool isConnected;
+  bool wdtEnabled;
+
+  // Internal safe copies of credentials
+  char apnBuf[64];
+  char userBuf[32];
+  char passBuf[32];
+
+  // Internal RX buffer to smooth reads
+  static const int RX_BUF_SZ = 512;
+  uint8_t rxBuf[RX_BUF_SZ];
+  int rxHead; // next free position
+  int rxTail; // next byte to read
+
+  // Internal helpers
+  void rxBufferClear();
+  int rxBufferAvailable();
+  int rxBufferRead(uint8_t *buf, int len);
+
+  // Debug helper
+  void debugLog(const char *fmt, ...);
 };
 
-#endif // GSM_CLIENT_H
+#endif // GSMCLIENT_H
