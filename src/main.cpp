@@ -55,7 +55,7 @@ char deviceIP[16];
 bool isUpdating = false;
 bool taskRunning = true;
 size_t current_size, content_length = 0;
-char currentVersion[8] = "1.0.3";
+char currentVersion[8] = "1.0.4";
    // OTA Update HTML Page (with progress bar)
 static const char* serverIndex PROGMEM = R"(
         <!DOCTYPE html>
@@ -118,6 +118,11 @@ static const char* serverIndex PROGMEM = R"(
                     status.style.display = 'block';
                     status.innerText = Math.round(percent) + '% uploaded';
                     }
+                };
+
+                xhr.onloadstart = function() {
+                    progressBar.value = 0;
+                    status.innerText = 'Starting upload...';
                 };
 
                 xhr.onload = () => {
@@ -187,7 +192,7 @@ void loop() {
 
     // Prepare and send JSON data
     char payload[512];;
-    data.set("uptime", String(millis() / 1000));
+    data.set("uptime", String(millis() / 1000).c_str());
     data.set("active_conn", status.activeConnection == F("None") ? -1 : (status.activeConnection == F("WiFi") ? 0: (status.activeConnection == F("Cellular") ? 1 : -1)));
     if(status.activeConnection == F("WiFi")) {
         data.set("sig_rssi", String(status.wifiRssi).c_str());
@@ -334,6 +339,11 @@ void OTAUpdate() {
     }
     request->send(200, "text/html", serverIndex);
   });
+
+//   server.on("/ota_progress", HTTP_GET, [](AsyncWebServerRequest *request){
+//     request->send(200, "text/plain", String((current_size * 100) / content_length));
+//   });
+
 
   // OTA Update handling
   server.on("/update", HTTP_POST, [](AsyncWebServerRequest *request){
