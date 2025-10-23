@@ -2,16 +2,11 @@
 #define SENSORS_H
 
 #include <Arduino.h>
-#include <ArduinoJson.h>
+// #include <ArduinoJson.h>
+#include "SimpleJson.h"
 #include <max6675.h>
 #include <esp_task_wdt.h>
-
-// Structure to hold sensor readings
-struct SensorData {
-  float voltage;
-  float current;
-  float temperature;
-};
+#include <vector>
 
 enum SensorType {
   SENSOR_VOLTAGE,
@@ -26,9 +21,22 @@ struct SensorConfig {
   const char* name;
 };
 
+// struct SensorReadingsConfig {
+//   const char* name;
+//   char* variable;
+// };
+
+// Structure to hold sensor readings
+// struct SensorData {
+//   float voltage;
+//   float current;
+//   float temperature;
+// };
+
 // Global object (shared across files)
-extern SensorData sensorData;
-extern JsonDocument doc;
+// extern SensorData sensorData;
+// extern JsonDocument doc;
+extern SimpleJson data;
 
 // Setup and control functions
 void setupSensors();

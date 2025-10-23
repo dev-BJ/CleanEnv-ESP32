@@ -1,0 +1,14 @@
+# Name,     Type, SubType, Offset,   Size,    Flags
+# --------------------------------------------------
+# NVS storage
+nvs,        data, nvs,     0x9000,   0x5000,
+# OTA data (boot info)
+otadata,    data, ota,     0xe000,   0x2000,
+# Main application (1.5 MB) - starts on 0x10000 boundary
+app0,       app,  ota_0,   0x10000,  1586K,
+# OTA update slot (1 MB)
+app1,       app,  ota_1,            , 1350K,
+# LittleFS filesystem (1.2 MB, labeled as spiffs for compatibility)
+littlefs,   data, spiffs,          , 820K,
+# Custom binary / sensor data (256 KB)
+userdata,   data, 0x81,             , 256K,
