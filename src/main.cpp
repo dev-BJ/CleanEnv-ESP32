@@ -55,7 +55,7 @@ char deviceIP[16];
 bool isUpdating = false;
 bool taskRunning = true;
 size_t current_size, content_length = 0;
-char currentVersion[8] = "1.0.1";
+char currentVersion[8] = "1.0.3";
    // OTA Update HTML Page (with progress bar)
 static const char* serverIndex PROGMEM = R"(
         <!DOCTYPE html>

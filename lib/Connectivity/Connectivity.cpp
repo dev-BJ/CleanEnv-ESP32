@@ -15,6 +15,8 @@
 #define CHARACTERISTIC_UUID_GPRS_USER "beb5483e-36e1-4688-b7f5-ea07361b26b8"
 #define CHARACTERISTIC_UUID_GPRS_PASS "beb5483e-36e1-4688-b7f5-ea07361b26b9"
 
+#define PUBLISH_DELAY 5000
+
 // Signal strength thresholds
 const int WIFI_RSSI_THRESHOLD = -70; // dBm
 const int CELLULAR_CSQ_THRESHOLD = 10; // 0-31 scale
@@ -406,7 +408,7 @@ void sendDataToMQTT(const char* data) {
 
   // Rate-limit publishing to once every 5 seconds.
   static unsigned long lastPublish = 0;
-  if (millis() - lastPublish < 10000) {
+  if (millis() - lastPublish < PUBLISH_DELAY) {
     return;
   }
 
