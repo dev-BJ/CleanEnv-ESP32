@@ -55,7 +55,7 @@ char deviceIP[16];
 bool isUpdating = false;
 bool taskRunning = true;
 size_t current_size, content_length = 0;
-char currentVersion[8] = "1.0.1";
+char currentVersion[8] = "1.0.2";
    // OTA Update HTML Page (with progress bar)
 static const char* serverIndex PROGMEM = R"(
         <!DOCTYPE html>
@@ -256,7 +256,7 @@ void displayConnectivity() {
 void displaySensorData() {
     char line_data[32];
     String line1 = "T:" + String(data.getFloat("temp"), 1) + "C";
-    line1 += " V:" + String(data.getFloat("b_V"), 2) + "V";
+    line1 += " V:" + String(data.getFloat("b_v"), 2) + "V";
     line1 += " I:" + String(data.getFloat("b_c"), 2) + "A";
 
     updateLCDLine(1, line1);
