@@ -21,15 +21,6 @@
 // #include "CACerts.h"
 // #include "esp32_cert_bundle.h"
 
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer);
-  void onDisconnect(BLEServer* pServer);
-};
-
-class MyCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* pCharacteristic);
-};
-
 void saveCredentials();
 void loadCredentials();
 void saveGprsCredentials();
@@ -65,11 +56,11 @@ struct Status {
 };
 
 struct Config {
-    char ssid[32];
-    char password[32];
-    char apn[64];
-    char gprsUser[16];
-    char gprsPass[16];
+    String ssid;
+    String password;
+    String apn;
+    String gprsUser;
+    String gprsPass;
     // const char* broker = "sb52131d.ala.eu-central-1.emqxsl.com";
     const char* broker = "broker.hivemq.com";
     const int mqttPort = 1883;
@@ -84,5 +75,10 @@ struct Config {
 extern Config config;
 extern Status status;
 extern PubSubClient mqttClient;
+
+// --- Global Objects ---
+// HardwareSerial SerialAT(2);  // UART1 for SIM900A
+extern TinyGsm modem;
+// TinyGsmClient gsmClient(modem);
 
 #endif // CONNECTIVITY_H

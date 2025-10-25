@@ -20,7 +20,6 @@ const int LCD_D7 = 14;
 
 #define LCD_COLS 20
 #define LCD_ROWS 4
-#define DEBUG 0
 
 LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 AsyncWebServer server(80);
@@ -215,7 +214,7 @@ void loop() {
         data.set("sig_rssi", String(status.cellularCsq).c_str());
     }
     data.set("ble_status", status.bleDeviceConnected);
-    // Serial.println("BLE status: " + String(status.bleDeviceConnected));
+    Serial.println("BLE status: " + String(status.bleDeviceConnected));
     data.set("ip", ip.toString().c_str());
     data.set("ver", String(currentVersion).c_str());
 
@@ -364,7 +363,7 @@ void monitorTaskSetup() {
 
 void startWebServer() {
   server.begin();
-  if (DEBUG) Serial.println("HTTP server started");
+  Serial.println("HTTP server started");
 }
 
 void setupWebServer() {
@@ -396,7 +395,7 @@ void setupWebServer() {
     // AsyncWebServerResponse *response;
     // This is the upload handler, which is called for each chunk of the file.
     if(!index){ // If index is 0, it's the first chunk
-      if (DEBUG) Serial.printf("Update Start: %s\n", filename.c_str());
+      Serial.printf("Update Start: %s\n", filename.c_str());
       current_size = 0;
       content_length = request->contentLength();
 
@@ -405,7 +404,7 @@ void setupWebServer() {
       if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
         StreamString str;
         Update.printError(str);
-        if (DEBUG) Serial.println(str.c_str());
+        Serial.println(str.c_str());
         AsyncWebServerResponse *response = request->beginResponse((Update.hasError()) ? 400 : 200, "text/plain", (Update.hasError()) ? str.c_str() : "OK");
         response->addHeader("Connection", "close"); // Recommended to close connection after OTA
     response->addHeader("Access-Control-Allow-Origin", "*");
@@ -433,7 +432,7 @@ void setupWebServer() {
         }
         current_size += len;
         updateLCDLine(1, String(current_size * 100 / content_length) + "%");
-        if (DEBUG) Serial.printf("Update Progress: %u%%\n", (current_size * 100 / content_length));
+        Serial.printf("Update Progress: %u%%\n", (current_size * 100 / content_length));
     }
     
     if (final) {

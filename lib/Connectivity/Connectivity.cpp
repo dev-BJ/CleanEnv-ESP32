@@ -1,6 +1,7 @@
 #include <Connectivity.h>
 
 #define DEBUG 0
+#define ERASE_NVS 0
 
 // SIM900A config
 #define GSM_RX_PIN 16  // ESP32 RX to SIM900A TX
@@ -24,7 +25,6 @@ char bleDeviceName[] = "CleanEnv ESP32 Provisioner";
 
 // --- Global Objects ---
 HardwareSerial SerialAT(2);  // UART1 for SIM900A
-// GsmClient gsmClient(SerialAT);
 TinyGsm modem(SerialAT);
 TinyGsmClient gsmClient(modem);
 
@@ -33,8 +33,8 @@ WiFiClient wifiClient;
 Preferences prefs;
 
 // Single instances for BLE callbacks to prevent memory leaks
-MyServerCallbacks serverCallbacks;
-MyCallbacks characteristicCallbacks;
+// MyServerCallbacks serverCallbacks;
+// MyCallbacks characteristicCallbacks;
 
 // --- State Management Structs ---
 Config config;
@@ -51,121 +51,124 @@ struct BleHandles {
 // Define the global status object here, as declared in the header
 Status status;
 
-// --- BLE Callback Implementations ---
-void MyServerCallbacks::onConnect(BLEServer* pServer) { status.bleDeviceConnected = true; }
-void MyServerCallbacks::onDisconnect(BLEServer* pServer) { status.bleDeviceConnected = false; }
+// Forward declaration for the function in main.cpp
+// void startWebServer();
 
-void MyCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
-  std::string value = pCharacteristic->getValue();
-  if (value.length() > 0 && value.length() < 128) { // Limit input size
-    BLEUUID uuid = pCharacteristic->getUUID();
-    if (uuid.equals(BLEUUID(CHARACTERISTIC_UUID_SSID))) {
-      // config.ssid = value.c_str();
-      strncpy(config.ssid, value.c_str(), sizeof(config.ssid) - 1);
-      config.ssid[sizeof(config.ssid) - 1] = '\0'; // Ensure null-termination
-      pCharacteristic->notify(); // Notify on change
-    } else if (uuid.equals(BLEUUID(CHARACTERISTIC_UUID_PASS))) {
-      // config.password = value.c_str();
-      strncpy(config.password, value.c_str(), sizeof(config.password) - 1);
-      config.password[sizeof(config.password) - 1] = '\0'; // Ensure null-termination
-      status.wifiCredentialsUpdated = true;
-      saveCredentials();
-      pCharacteristic->notify();
-    } else if (uuid.equals(BLEUUID(CHARACTERISTIC_UUID_GPRS_APN))){
-      // config.apn = value.c_str();
-      strncpy(config.apn, value.c_str(), sizeof(config.apn) - 1);
-      config.apn[sizeof(config.apn) - 1] = '\0'; // Ensure null-termination
-      status.gprsCredentialsUpdated = true;
-      saveGprsCredentials();
-      pCharacteristic->notify();
-    } else if (uuid.equals(BLEUUID(CHARACTERISTIC_UUID_GPRS_USER))){
-      // config.gprsUser = value.c_str();
-      strncpy(config.gprsUser, value.c_str(), sizeof(config.gprsUser) - 1);
-      config.gprsUser[sizeof(config.gprsUser) - 1] = '\0'; // Ensure null-termination
-      status.gprsCredentialsUpdated = true;
-      saveGprsCredentials();
-      pCharacteristic->notify();
-    } else if (uuid.equals(BLEUUID(CHARACTERISTIC_UUID_GPRS_PASS))){
-      // config.gprsPass = value.c_str();
-      strncpy(config.gprsPass, value.c_str(), sizeof(config.gprsPass) - 1);
-      config.gprsPass[sizeof(config.gprsPass) - 1] = '\0'; // Ensure null-termination
-      status.gprsCredentialsUpdated = true;
-      saveGprsCredentials();
-      pCharacteristic->notify();
+// --- BLE Callback Implementations ---
+
+class ServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& pInfo) override {
+    status.bleDeviceConnected = true;
+    // Serial.println("Connected to BLE device");
+  }
+  void onDisconnect(BLEServer* pServer, NimBLEConnInfo& pInfo, int reason) override {
+    status.bleDeviceConnected = false;
+    BLEDevice::startAdvertising();
+    // Serial.println("Disconnected from BLE device");
+  }
+} serverCallbacks;
+
+class CharCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* pCharacteristic, NimBLEConnInfo& pInfo) override {
+    std::string value = pCharacteristic->getValue();
+    if (value.length() > 0) {
+      if (pCharacteristic->getUUID().equals(BLEUUID(CHARACTERISTIC_UUID_SSID))) {
+        config.ssid = value.c_str();
+        status.wifiCredentialsUpdated = true;
+        if (DEBUG) Serial.println("New SSID: " + config.ssid);
+      } else if (pCharacteristic->getUUID().equals(BLEUUID(CHARACTERISTIC_UUID_PASS))) {
+        config.password = value.c_str();
+        status.wifiCredentialsUpdated = true;
+        if (DEBUG) Serial.println("New Password: " + config.password);
+      } else if (pCharacteristic->getUUID().equals(BLEUUID(CHARACTERISTIC_UUID_GPRS_APN))) {
+        config.apn = value.c_str();
+        status.gprsCredentialsUpdated = true;
+        if (DEBUG) Serial.println("New GPRS APN: " + config.apn);
+      } else if (pCharacteristic->getUUID().equals(BLEUUID(CHARACTERISTIC_UUID_GPRS_USER))) {
+        config.gprsUser = value.c_str();
+        status.gprsCredentialsUpdated = true;
+        if (DEBUG) Serial.println("New GPRS User: " + config.gprsUser);
+      } else if (pCharacteristic->getUUID().equals(BLEUUID(CHARACTERISTIC_UUID_GPRS_PASS))) {
+        config.gprsPass = value.c_str();
+        status.gprsCredentialsUpdated = true;
+        if (DEBUG) Serial.println("New GPRS Pass: " + config.gprsPass);
+      }
+
+      if (status.wifiCredentialsUpdated) {
+        saveCredentials();
+        pCharacteristic->notify(); 
+      }
+      if (status.gprsCredentialsUpdated) {
+        saveGprsCredentials();
+        pCharacteristic->notify(); 
+      }
     }
   }
-}
+
+} characteristicCallbacks;
 // --- NVS (Storage) Functions ---
 void saveGprsCredentials() {
   prefs.begin("gprs", false);
-  prefs.putString("apn", config.apn);
-  prefs.putString("user", config.gprsUser);
-  prefs.putString("pass", config.gprsPass);
+  prefs.putString("apn", config.apn.c_str());
+  prefs.putString("user", config.gprsUser.c_str());
+  prefs.putString("pass", config.gprsPass.c_str());
   prefs.end();
+  if(DEBUG) Serial.println("Saved GPRS");
 }
 
 void saveCredentials() {
   prefs.begin("wifi", false);
-  prefs.putString("ssid", config.ssid);
-  prefs.putString("pass", config.password);
+  prefs.putString("ssid", config.ssid.c_str());
+  prefs.putString("pass", config.password.c_str());
   prefs.end();
+  if (DEBUG) Serial.println("Saved WiFi");
 }
 
 void loadCredentials() {
   if (prefs.begin("wifi", true)) {
-    // config.ssid = prefs.getString("ssid", "");
-    strncpy(config.ssid, prefs.getString("ssid", "").c_str(), sizeof(config.ssid) - 1);
-    config.ssid[sizeof(config.ssid) - 1] = '\0'; // Ensure null-termination
-    //
-    // config.password = prefs.getString("pass", "");
-    strncpy(config.password, prefs.getString("pass", "").c_str(), sizeof(config.password) - 1);
-    config.password[sizeof(config.password) - 1] = '\0'; // Ensure null-termination
+    config.ssid = prefs.getString("ssid", "");
+    config.password = prefs.getString("pass", "");
     prefs.end();
-    if (DEBUG) Serial.println("Loaded credentials: SSID=" + String(config.ssid) + ", Pass=" + (String(config.password) == "" ? "None" : "****"));
+    if (DEBUG) Serial.println("Loaded credentials: SSID=" + config.ssid + ", Pass=" + (config.password == "" ? "None" : "****"));
   }
 }
 
 void loadGprsCredentials() {
   if (prefs.begin("gprs", true)) {
-    // config.apn = prefs.getString("apn", "internet.ng.airtel.com");
-    strncpy(config.apn, prefs.getString("apn", "internet.ng.airtel.com").c_str(), sizeof(config.apn) - 1);
-    config.apn[sizeof(config.apn) - 1] = '\0'; //
-    // config.gprsUser = prefs.getString("user", "internet");
-    strncpy(config.gprsUser, prefs.getString("user", "internet").c_str(), sizeof(config.gprsUser) - 1);
-    config.gprsUser[sizeof(config.gprsUser) - 1] = '\0'; //
-    // config.gprsPass = prefs.getString("pass", "internet");
-    strncpy(config.gprsPass, prefs.getString("pass", "internet").c_str(), sizeof(config.gprsPass) - 1);
-    config.gprsPass[sizeof(config.gprsPass) - 1] = '\0'; //
+    config.apn = prefs.getString("apn", "");
+    config.gprsUser = prefs.getString("user", "");
+    config.gprsPass = prefs.getString("pass", "");
     prefs.end();
-    if (DEBUG) Serial.println("Loaded GPRS credentials: APN=" + String(config.apn) + ", User=" + String(config.gprsUser) + ", Pass=" + (String(config.gprsPass) == "" ? "None" : "****"));
+    if (DEBUG) Serial.println("Loaded GPRS credentials: APN=" + config.apn + ", User=" + config.gprsUser + ", Pass=" + (config.gprsPass == "" ? "None" : "****"));
   }
 }
 
 // Helper to reduce BLE characteristic creation boilerplate
-static BLECharacteristic* createCharacteristic(BLEService* pService, const char* uuid, BLECharacteristicCallbacks* callbacks) {
+static BLECharacteristic* createCharacteristic(BLEService* pService, const char* uuid) {
     BLECharacteristic* pCharacteristic = pService->createCharacteristic(
         uuid,
         NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    pCharacteristic->createDescriptor(BLEUUID((uint16_t)0x2902));
-    pCharacteristic->setCallbacks(static_cast<BLECharacteristicCallbacks*>(callbacks));
+    // Add the CCCD (Client Characteristic Configuration Descriptor) with encrypted read/write permissions.
+    // This is a security best practice. It requires a bonded device to enable notifications.
+    pCharacteristic->createDescriptor(BLEUUID((uint16_t)0x2902),
+                                      NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::WRITE_ENC);
+    pCharacteristic->setCallbacks(&characteristicCallbacks);
     return pCharacteristic;
 }
 
 // --- Setup and Connection Logic ---
 void setupBLE() {
-  // BLEDevice::setSecurityAuth(false, false, false);
-  // BLEDevice::setMTU(100);
   BLEDevice::init(bleDeviceName);
   ble.pServer = BLEDevice::createServer();
   ble.pServer->setCallbacks(&serverCallbacks);
   BLEService* pService = ble.pServer->createService(SERVICE_UUID);
 
-  ble.pCharSSID = createCharacteristic(pService, CHARACTERISTIC_UUID_SSID, &characteristicCallbacks);
-  ble.pCharPass = createCharacteristic(pService, CHARACTERISTIC_UUID_PASS, &characteristicCallbacks);
-  ble.pCharGprsApn = createCharacteristic(pService, CHARACTERISTIC_UUID_GPRS_APN, &characteristicCallbacks);
-  ble.pCharGprsUser = createCharacteristic(pService, CHARACTERISTIC_UUID_GPRS_USER, &characteristicCallbacks);
-  ble.pCharGprsPass = createCharacteristic(pService, CHARACTERISTIC_UUID_GPRS_PASS, &characteristicCallbacks);
+  ble.pCharSSID = createCharacteristic(pService, CHARACTERISTIC_UUID_SSID);
+  ble.pCharPass = createCharacteristic(pService, CHARACTERISTIC_UUID_PASS);
+  ble.pCharGprsApn = createCharacteristic(pService, CHARACTERISTIC_UUID_GPRS_APN);
+  ble.pCharGprsUser = createCharacteristic(pService, CHARACTERISTIC_UUID_GPRS_USER);
+  ble.pCharGprsPass = createCharacteristic(pService, CHARACTERISTIC_UUID_GPRS_PASS);
 
   ble.pCharSSID->setValue(config.ssid);
   ble.pCharPass->setValue(config.password);
@@ -176,14 +179,14 @@ void setupBLE() {
   pService->start();
   BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->setName(bleDeviceName);
-  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->addServiceUUID(pService->getUUID());
   pAdvertising->enableScanResponse(false);
   pAdvertising->setPreferredParams(0x06, 0x0C80);
-  BLEDevice::startAdvertising();
+  pAdvertising->start();
 }
 
 bool connectWiFi() {
-  if (config.ssid == "" || config.password == "") {
+  if (config.ssid[0] == '\0' || config.password[0] == '\0') {
     status.wifiRssi = -100;
     if (DEBUG) Serial.println("WiFi: No credentials");
     return false;
@@ -194,7 +197,7 @@ bool connectWiFi() {
   // delay(100);
   // WiFi.mode(WIFI_STA);
   
-  WiFi.begin(config.ssid, config.password);
+  WiFi.begin(config.ssid.c_str(), config.password.c_str());
   int attempts = 0;
   // Wait for connection, but not indefinitely. 30 * 200ms = 6 seconds.
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
@@ -231,7 +234,7 @@ bool connectCellular() {
     }
     // gsmClient.disableWdt();
     // !gsmClient.resetModem()
-    if (modem.waitForNetwork(5000L) != 1) {
+    if (modem.waitForNetwork(3000L) != 1) {
       esp_task_wdt_reset(); // Reset WDT after potentially long wait
       if (DEBUG) Serial.println("Cellular: Network connection failed");
       return false;
@@ -241,7 +244,7 @@ bool connectCellular() {
 
 
     // gsmClient.setGprsCredentials(config.apn.c_str(), config.gprsUser.c_str(), config.gprsPass.c_str());
-    if(modem.gprsConnect(config.apn, config.gprsUser, config.gprsPass) != 1) {
+    if(modem.gprsConnect(config.apn.c_str(), config.gprsUser.c_str(), config.gprsPass.c_str()) != 1) {
       esp_task_wdt_reset();
       if (DEBUG) Serial.println("Cellular: GPRS connection failed");
       return false;
@@ -271,11 +274,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 void connectMQTT() {
   mqttClient.setServer(config.broker, config.mqttPort);
   mqttClient.setCallback(mqttCallback);
-  if (status.activeConnection == F("WiFi")) {
+  if (status.activeConnection == "WiFi") {
     status.wifiRssi = WiFi.RSSI();
     // if (DEBUG) Serial.println("WiFi connected, RSSI: " + String(status.wifiRssi));
     mqttClient.setClient(wifiClient);
-  } else if (status.activeConnection == F("Cellular")) {
+  } else if (status.activeConnection == "Cellular") {
     status.cellularCsq = modem.getSignalQuality();
     // Serial.println("Cellular connected, CSQ: " + String(cellularCsq));
     mqttClient.setClient(gsmClient);
@@ -295,7 +298,7 @@ void monitorConnectivity() {
   if (status.bleDeviceConnected && status.wifiCredentialsUpdated) {
     status.wifiCredentialsUpdated = false;
     WiFi.disconnect();
-    status.activeConnection = String("None");
+    status.activeConnection = "None";
     status.mqttConnected = false;
     if (DEBUG) Serial.println("BLE: Credentials updated, resetting connection");
   }
@@ -305,47 +308,47 @@ void monitorConnectivity() {
     status.gsmActive = false;
     // gsmClient.resetModem();
     modem.restart();
-    status.activeConnection = F("None");
+    status.activeConnection = "None";
     status.mqttConnected = false;
     if (DEBUG) Serial.println("GPRS: GPRS Credentials updated, resetting connection");
   }
 
   // Check signal strengths every 5 seconds
   static unsigned long lastCheck = 0;
-  if (millis() - lastCheck >= 5000 || status.activeConnection == F("None")) {
+  if (millis() - lastCheck >= 5000 || status.activeConnection == "None") {
     bool wifiAvailable = connectWiFi();
     esp_task_wdt_reset(); // Reset WDT after WiFi check
     bool cellularAvailable = !wifiAvailable ? connectCellular() : false;
     esp_task_wdt_reset(); // Reset WDT after Cellular check
     
     if (wifiAvailable && status.wifiRssi > WIFI_RSSI_THRESHOLD) {
-      if (status.activeConnection != F("WiFi")) {
-        status.activeConnection = F("WiFi");
+      if (status.activeConnection != "WiFi") {
+        status.activeConnection = "WiFi";
         status.switchNetwork = true;
         // wifiClient.setCACert(emqx_ca);
         if (DEBUG) Serial.println("Switching to WiFi (stronger signal)");
       }
     } else if (cellularAvailable && status.cellularCsq > CELLULAR_CSQ_THRESHOLD) {
-      if (status.activeConnection != F("Cellular")) {
-        status.activeConnection = F("Cellular");
+      if (status.activeConnection != "Cellular") {
+        status.activeConnection = "Cellular";
         status.switchNetwork = true;
         if (DEBUG) Serial.println("Switching to Cellular (stronger signal)");
       }
     } else if (wifiAvailable) {
-      if (status.activeConnection != F("WiFi")) {
-        status.activeConnection =F("WiFi");
+      if (status.activeConnection != "WiFi") {
+        status.activeConnection = "WiFi";
         status.switchNetwork = true;
         // wifiClient.setCACert(emqx_ca);
         if (DEBUG) Serial.println("Switching to WiFi (fallback)");
       }
     } else if (cellularAvailable) {
-      if (status.activeConnection != F("Cellular")) {
-        status.activeConnection = F("Cellular");
+      if (status.activeConnection != "Cellular") {
+        status.activeConnection = "Cellular";
         status.switchNetwork = true;
         if (DEBUG) Serial.println("Switching to Cellular (fallback)");
       }
     } else {
-      status.activeConnection = F("None");
+      status.activeConnection = "None";
       status.mqttConnected = false;
       if (DEBUG) Serial.println("No network available");
     }
@@ -353,8 +356,10 @@ void monitorConnectivity() {
   }
 }
 
+   // OTA Update HTML Page (with progress 
 void initNvs() {
   esp_err_t err = nvs_flash_init();
+  if(ERASE_NVS) nvs_flash_erase();
   if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
     err = nvs_flash_init();
@@ -363,12 +368,17 @@ void initNvs() {
 }
 
 void monitorConnectivityTask(void *pvParameters) {
+  bool serverStarted = false;
   // Initialize watchdog for this task. Timeout is 30 seconds.
   esp_task_wdt_init(150, true);
   esp_task_wdt_add(NULL);
 
   SerialAT.begin(GSM_BAUD, SERIAL_8N1, GSM_RX_PIN, GSM_TX_PIN);
   initNvs();
+  prefs.begin("wifi", false);
+  prefs.end();
+  prefs.begin("gprs", false);
+  prefs.end();
   loadCredentials();
   loadGprsCredentials();
   setupBLE();
@@ -384,6 +394,12 @@ void monitorConnectivityTask(void *pvParameters) {
     if(DEBUG) Serial.println();
     if(DEBUG) Serial.println("Monitoring connectivity...");
     monitorConnectivity();
+
+    // Start the web server only when WiFi is connected for the first time
+    // if (status.activeConnection == "WiFi" && !serverStarted) {
+    //   startWebServer();
+    //   serverStarted = true;
+    // }
 
     if (status.activeConnection != "None") {
       if (status.switchNetwork || !mqttClient.connected()) {

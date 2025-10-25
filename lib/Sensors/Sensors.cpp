@@ -90,7 +90,7 @@ static float getVoltage(float adcValue) {
   // float vin = vout * (25.0 / 3.15);
   // vin = (vin / 4.95) * 24.75;
   if (DEBUG) Serial.printf("Raw ADC: %f, Vout: %f V, Vin: %f V\n", adcValue, vout, vin);
-  return round_float(vin, 2);
+  return vin >= 2 ? round_float(vin, 2) : 0;
 }
 
 static float getCurrent(float adcValue) {
