@@ -22,7 +22,7 @@ const int LCD_D7 = 14;
 #define LCD_ROWS 4
 
 LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
-AsyncWebServer server(443);
+AsyncWebServer server(80);
 
 TaskHandle_t connectivityHandle;
 TaskHandle_t sensorsHandle;
@@ -55,7 +55,7 @@ char deviceIP[16];
 bool isUpdating = false;
 bool taskRunning = true;
 size_t current_size, content_length = 0;
-char currentVersion[8] = "1.0.4";
+char currentVersion[8] = "1.0.1";
    // OTA Update HTML Page (with progress bar)
 static const char* serverIndex PROGMEM = R"(
         <!DOCTYPE html>
@@ -157,7 +157,7 @@ void initLCD();
 void displayHeader();
 void displayConnectivity();
 void displaySensorData();
-void displayMQTTStatus();
+void displayOtherStatus();
 int  getSignalLevel(long value, long min, long max);
 void updateLCDLine(uint8_t row, const String &text);
 void monitorTaskSetup();
@@ -171,32 +171,34 @@ void setup() {
     displayHeader();
     monitorTaskSetup();
     OTAUpdate();
+    lcd.clear();
 }
 
 // ========== Loop ==========
 void loop() {
-    if (status.activeConnection == F("WiFi") && WiFi.status() != WL_CONNECTED) {
+    if (status.activeConnection == "WiFi" && WiFi.status() != WL_CONNECTED) {
         WiFi.reconnect();
     }
     // eSp free heap in kb
     Serial.println("Free heap: " + String(esp_get_free_heap_size() / 1024) + "kb");
-    Serial.println("version: " + String(currentVersion));
+    // Serial.println("version: " + String(currentVersion));
 
     if (isUpdating) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
         return;
     }
     // Update LCD Display
     displayConnectivity();
     displaySensorData();
-    displayMQTTStatus();
+    displayOtherStatus();
 
     // Prepare and send JSON data
-    char payload[512];;
+    char payload[512];
     data.set("uptime", String(millis() / 1000).c_str());
-    data.set("active_conn", status.activeConnection == F("None") ? -1 : (status.activeConnection == F("WiFi") ? 0: (status.activeConnection == F("Cellular") ? 1 : -1)));
-    if(status.activeConnection == F("WiFi")) {
+    data.set("active_conn", status.activeConnection == "None" ? -1 : (status.activeConnection == "WiFi" ? 0: (status.activeConnection == "Cellular" ? 1 : -1)));
+    if(status.activeConnection == "WiFi") {
         data.set("sig_rssi", String(status.wifiRssi).c_str());
-    } else if(status.activeConnection == F("Cellular")) {
+    } else if(status.activeConnection == "Cellular") {
         data.set("sig_rssi", String(status.cellularCsq).c_str());
     }
     data.set("ble_status", status.bleDeviceConnected);
@@ -220,8 +222,8 @@ void initLCD() {
 }
 
 void displayHeader() {
-    lcd.setCursor(4, 0);
-    lcd.print("CleanEnv v0.1");
+    lcd.setCursor(5, 0);
+    lcd.print("CleanEnv");
     lcd.setCursor(2, 1);
     lcd.print("Firmware version");
     lcd.setCursor(7, 2);
@@ -229,7 +231,7 @@ void displayHeader() {
     lcd.setCursor(2, 3);
     lcd.print("Initializing...");
     vTaskDelay(2000 / portTICK_PERIOD_MS);
-    lcd.clear();
+    // lcd.clear();
 }
 
 // ========== Display Functions ==========
@@ -240,15 +242,15 @@ void displayConnectivity() {
 
     int signalLevel = 0;
 
-    if (status.activeConnection == F("WiFi")) {
+    if (status.activeConnection == "WiFi") {
         signalLevel = getSignalLevel(status.wifiRssi, -100, -30);
-    } else if (status.activeConnection == F("Cellular")) {
+    } else if (status.activeConnection == "Cellular") {
         signalLevel = getSignalLevel(status.cellularCsq, 0, 31);
     }
 
     lcd.print(status.activeConnection);
     lcd.setCursor(status.activeConnection.length() + 1, 0);
-    lcd.write(status.activeConnection == F("None") ? 6 : byte(signalLevel));
+    lcd.write(status.activeConnection == "None" ? 6 : byte(signalLevel));
 }
 
 void displaySensorData() {
@@ -266,9 +268,35 @@ void displaySensorData() {
     }
 }
 
-void displayMQTTStatus() {
-    String mqttStatusText = "MQTT: " + String(status.mqttConnected ? "Connected" : "Disconnected");
-    updateLCDLine(3, mqttStatusText);
+// display mqtt status, ip address, uptime
+void displayOtherStatus() {
+    static uint8_t displayStat = 0;
+    static long lastDisplayMillis = 0;
+    static bool justUp = true;
+    
+    if ((millis() - lastDisplayMillis) >= 10000 || justUp) {
+        switch(displayStat) {
+            case 0:
+                updateLCDLine(3, "MQTT: " + String(status.mqttConnected ? "Connected" : "Disconnected"));
+                break;
+            case 1:
+                updateLCDLine(3, "IP: " + WiFi.localIP().toString() + ":80");
+                break;
+            case 2:
+                char uptime_buf[128];
+                data.getString("uptime", uptime_buf, sizeof(uptime_buf));
+                updateLCDLine(3, "UPTIME: " + String(uptime_buf) + "s");
+                break;
+            default:
+                displayStat = 0;
+                break;
+        }
+
+        displayStat = (displayStat + 1) % 3;
+        // displayStat++;
+        if (justUp) justUp = false;
+        lastDisplayMillis = millis();
+    }
 }
 
 // ========== Helper Functions ==========
@@ -281,15 +309,24 @@ int getSignalLevel(long value, long min, long max) {
 void updateLCDLine(uint8_t row, const String &text) {
     lcd.setCursor(0, row);
     lcd.print(String("                    ").substring(0, LCD_COLS)); // clear line
-    lcd.setCursor(0, row);
-    lcd.print(text);
-}
 
+    int textWidth = text.length();
+    int lines = textWidth / LCD_COLS + (textWidth % LCD_COLS > 0 ? 1 : 0);
+    for (int i = 0; i < lines; i++) {
+        int start = i * LCD_COLS;
+        int end = start + LCD_COLS;
+        if (end > textWidth) {
+            end = textWidth;
+        }
+        lcd.setCursor(0, row + i);
+        lcd.print(text.substring(start, end));
+    }
+}
 void monitorTaskSetup() {
     xTaskCreatePinnedToCore(
         monitorConnectivityTask,
         "MonitorConnectivity",
-        3096,
+        3608, // 3.8 KB stack
         NULL,
         1,
         &connectivityHandle,
@@ -299,7 +336,7 @@ void monitorTaskSetup() {
     xTaskCreatePinnedToCore(
         monitorSensorsTask,
         "MonitorSensors",
-        2048,
+        2176, // 2.2 KB stack
         NULL,
         1,
         &sensorsHandle,
@@ -323,7 +360,7 @@ void OTAUpdate() {
   // Start mDNS
   if (MDNS.begin(hostname)) {
     Serial.println("mDNS responder started: http://" + String(hostname) + ".local");
-    MDNS.addService("https", "tcp", 443); // Advertise HTTP service on port 80
+    MDNS.addService("https", "tcp", 80); // Advertise HTTP service on port 80
   } else {
     Serial.println("mDNS failed to start");
   }
@@ -339,11 +376,6 @@ void OTAUpdate() {
     }
     request->send(200, "text/html", serverIndex);
   });
-
-//   server.on("/ota_progress", HTTP_GET, [](AsyncWebServerRequest *request){
-//     request->send(200, "text/plain", String((current_size * 100) / content_length));
-//   });
-
 
   // OTA Update handling
   server.on("/update", HTTP_POST, [](AsyncWebServerRequest *request){

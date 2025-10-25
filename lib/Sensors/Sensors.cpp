@@ -29,8 +29,8 @@
 #define CURRENT_SENSOR_OFFSET (ADC_REF_VOLTAGE / 2) // ACS712 is a 5V sensor, so its 0A offset is 2.5V
 #define VOLTAGE_MAP (v) ((v / ADC_REF_VOLTAGE) * 25)
 
-#define R1 1000.0 // 30k ohm
-#define R2 2000.0  // 7.5k ohm
+#define R1 52000.0 // 52k ohm, added 22k to 30k on volatage sensor 25v > 3.15v
+#define R2 7500.0  // 7.5k ohm
 
 // #define NUM_SENSORS 6
 
@@ -39,7 +39,7 @@
 #define NUM_FANS 4
 
 SensorConfig sensorMap[] = {
-  {0, SENSOR_VOLTAGE, "b_V"}, // battery voltage
+  {0, SENSOR_VOLTAGE, "b_v"}, // battery voltage
   {1, SENSOR_CURRENT, "b_c"}, // battery current
   {2, SENSOR_VOLTAGE, "t_v"}, // teg voltage
   {3, SENSOR_CURRENT, "t_c"}, // teg current
@@ -79,26 +79,27 @@ static float round_float(float value, int places) {
 }
 
 static float getVoltage(float adcValue) {
-  float sample = 0;
-  for (int i = 0; i < 10; i++) {
-    sample += adcValue;
-    delay(10);
-  }
-  adcValue = sample / 10;
-  float vout = (adcValue * 3.3) / ADC_RESOLUTION;
-  float vin = vout / (R2 / (R1 + R2));
-  vin = (vin / 4.95) * 24.75;
+  // float sample = 0;
+  // for (int i = 0; i < 10; i++) {
+  //   sample += adcValue;
+  //   delay(10);
+  // }
+  // adcValue = sample / 10;
+  float vout = (adcValue * 3.15) / 3909;
+  float vin = (vout + 0.18) / (R2 / (R1 + R2));
+  // float vin = vout * (25.0 / 3.15);
+  // vin = (vin / 4.95) * 24.75;
   if (DEBUG) Serial.printf("Raw ADC: %f, Vout: %f V, Vin: %f V\n", adcValue, vout, vin);
   return round_float(vin, 2);
 }
 
 static float getCurrent(float adcValue) {
-  float sample = 0;
-  for (int i = 0; i < 10; i++) {
-    sample += adcValue;
-    delay(10);
-  }
-  adcValue = sample / 10;
+  // float sample = 0;
+  // for (int i = 0; i < 10; i++) {
+  //   sample += adcValue;
+  //   delay(10);
+  // }
+  // adcValue = sample / 10;
   float voltage = (adcValue / ADC_RESOLUTION) * ADC_REF_VOLTAGE;
   float current = (voltage - CURRENT_SENSOR_OFFSET) / CURRENT_SENSOR_SENSITIVITY;
   if (DEBUG) Serial.printf("Raw ADC: %f, Voltage: %f V, Current: %f A\n", adcValue, voltage, current);
@@ -219,8 +220,8 @@ void monitorSensorsTask(void *pvParameters) {
 
   while (1) {
     // stack watermark
-    UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-    Serial.printf("MonitorSensors stack remaining: %d bytes\n", stackHighWaterMark * sizeof(StackType_t));
+    // UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+    // Serial.printf("MonitorSensors stack remaining: %d bytes\n", stackHighWaterMark * sizeof(StackType_t));
     // esp_task_wdt_reset();
     if(DEBUG) Serial.println("Reading sensors...");
     monitorSensors();

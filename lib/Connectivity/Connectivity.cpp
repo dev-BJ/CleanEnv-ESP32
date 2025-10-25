@@ -376,8 +376,8 @@ void monitorConnectivityTask(void *pvParameters) {
   
   while (1) {
     // stack watermark
-    UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-    Serial.printf("MonitorConnectivity stack remaining: %d bytes\n", stackHighWaterMark * sizeof(StackType_t));
+    // UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+    // Serial.printf("MonitorConnectivity stack remaining: %d bytes\n", stackHighWaterMark * sizeof(StackType_t));
     // Reset the watchdog at the beginning of each loop iteration.
     esp_task_wdt_reset();
 
