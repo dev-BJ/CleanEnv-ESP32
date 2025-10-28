@@ -32,11 +32,13 @@
 #define R1 52000.0 // 52k ohm, added 22k to 30k on volatage sensor 25v > 3.15v
 #define R2 7500.0  // 7.5k ohm
 
-// #define NUM_SENSORS 6
-
-#define TEMP_THRESHOLD_1 100.0
-#define TEMP_THRESHOLD_2 120.0
+// #define NUM_SENSORS
 #define NUM_FANS 4
+
+#define HIGH_TEMP_1     100   // Stage 1: Fans 0 & 1
+#define HIGH_TEMP_2     150   // Stage 2: All fans
+#define FAN1_OFF_TEMP    50   // Fans 0 & 1 turn OFF below this
+#define HYSTERESIS        5   // Hysteresis for downward transitions
 
 SensorConfig sensorMap[] = {
   {0, SENSOR_VOLTAGE, "b_v"}, // battery voltage
@@ -53,9 +55,23 @@ const int NUM_SENSORS = sizeof(sensorMap) / sizeof(sensorMap[0]);
 
 // -------- Global Objects --------
 MAX6675 thermocouple(MAX_SCK_PIN, MAX_CS_PIN, MAX_MISO_PIN);
-// JsonDocument doc;
-// SensorData sensorData = {0.0, 0.0, 0.0};
+
 SimpleJson data;
+
+byte active_fans = 0x00;
+
+// Fan bitmasks
+const byte STAGE_1_FANS = (1 << 0) | (1 << 2);  // Fans 0,1
+const byte STAGE_2_FANS = (1 << 1) | (1 << 3);  // Fans 2,3
+const byte ALL_FANS     = STAGE_1_FANS | STAGE_2_FANS;
+
+// === Persistent state for hysteresis ===
+static int   current_state = 0;  // 0=off, 1=stage1, 2=stage2
+static float state_entry_temp = 0.0;  // temp when we entered this state
+
+byte desired_fans = active_fans;
+int  desired_state = current_state;
+bool should_update = false;
 
 // -------- Helper Functions --------
 static void selectMuxChannel(int channel) {
@@ -79,12 +95,6 @@ static float round_float(float value, int places) {
 }
 
 static float getVoltage(float adcValue) {
-  // float sample = 0;
-  // for (int i = 0; i < 10; i++) {
-  //   sample += adcValue;
-  //   delay(10);
-  // }
-  // adcValue = sample / 10;
   float vout = (adcValue * 3.15) / 3909;
   float vin = (vout + 0.18) / (R2 / (R1 + R2));
   // float vin = vout * (25.0 / 3.15);
@@ -94,12 +104,6 @@ static float getVoltage(float adcValue) {
 }
 
 static float getCurrent(float adcValue) {
-  // float sample = 0;
-  // for (int i = 0; i < 10; i++) {
-  //   sample += adcValue;
-  //   delay(10);
-  // }
-  // adcValue = sample / 10;
   float voltage = (adcValue / ADC_RESOLUTION) * ADC_REF_VOLTAGE;
   float current = (voltage - CURRENT_SENSOR_OFFSET) / CURRENT_SENSOR_SENSITIVITY;
   if (DEBUG) Serial.printf("Raw ADC: %f, Voltage: %f V, Current: %f A\n", adcValue, voltage, current);
@@ -144,23 +148,40 @@ void monitorSensors() {
     return;
   }
 
-  // sensorData.temperature = temp;
-  // doc["temp"] = temp;
   data.set("temp", temp);
   if (DEBUG) Serial.printf("Temperature: %.2f °C\n", temp);
 
-  // --- Fan Control ---
-  if (temp >= TEMP_THRESHOLD_1) {
-    setFanState((1 << NUM_FANS) - 1);
-    // doc["fan_state"] = true;
-    data.set("fan_state", true);
-    if (DEBUG) Serial.println("Fans ON");
-  } else {
-    setFanState(0x00);
-    // doc["fan_state"] = false;
-    data.set("fan_state", false);
-    if (DEBUG) Serial.println("Fans OFF");
+  // === 1. Determine desired state based on temperature ===
+  if (temp >= HIGH_TEMP_2) {
+      desired_state = 2;
+      desired_fans = ALL_FANS;
   }
+  else if (temp >= HIGH_TEMP_1 || (temp >= FAN1_OFF_TEMP && desired_state != 0)) {
+      desired_state = 1;
+      desired_fans = STAGE_1_FANS;
+  }
+  else {
+      desired_state = 0;
+      desired_fans = 0x00;
+  }
+
+  if (desired_state != current_state) {
+    // --- Apply to physical fans ---
+      setFanState(active_fans);
+      // --- Debug ---
+      if (DEBUG) {
+          if (active_fans == ALL_FANS)
+              Serial.println("All Fans ON - Critical Temp");
+          else if (active_fans == STAGE_1_FANS)
+              Serial.println("Stage 1 Fans ON (0,1)");
+          else
+              Serial.println("All Fans OFF");
+      }
+      
+  }
+
+  // --- Update telemetry ---
+  data.set("fan_state", (active_fans != 0x00));
 
   // --- Multiplexer Readings ---
  
