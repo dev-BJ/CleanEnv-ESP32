@@ -5,7 +5,7 @@
 #define MAX_SCK_PIN 18
 #define MAX_MISO_PIN 19
 
-#define DEBUG 0
+#define DEBUG 1
 
 #define SHIFT_DATA_PIN 23
 #define SHIFT_CLOCK_PIN 22
@@ -19,14 +19,15 @@
 
 // ADC and Voltage/Current Sensor Constants
 #define ADC_RESOLUTION 4095.0
-#define ADC_REF_VOLTAGE 3.3 // Full-scale voltage for ADC with 11dB attenuation
+#define ADC_REF_VOLTAGE 3.9 // Full-scale voltage for ADC with 11dB attenuation
 
 // This is the system voltage that corresponds to the ADC's max input voltage (ADC_REF_VOLTAGE)
 // after passing through a voltage divider. (e.g. 16.8V -> 3.9V)
 #define VOLTAGE_DIVIDER_MAX_IN 16.8 
 #define VOLTAGE_SCALING_FACTOR (VOLTAGE_DIVIDER_MAX_IN / ADC_REF_VOLTAGE)
 #define CURRENT_SENSOR_SENSITIVITY 0.066 // For ACS712 30A version (66mV/A)
-#define CURRENT_SENSOR_OFFSET (ADC_REF_VOLTAGE / 2) // ACS712 is a 5V sensor, so its 0A offset is 2.5V
+// #define CURRENT_SENSOR_OFFSET (ADC_REF_VOLTAGE / 2) // ACS712 is a 5V sensor, so its 0A offset is 2.5V
+#define CURRENT_SENSOR_OFFSET 2.5  // ACS712 outputs 2.5V at 0A when powered by 5V
 #define VOLTAGE_MAP (v) ((v / ADC_REF_VOLTAGE) * 25)
 
 #define R1 52000.0 // 52k ohm, added 22k to 30k on volatage sensor 25v > 3.15v
@@ -35,10 +36,12 @@
 // #define NUM_SENSORS
 #define NUM_FANS 4
 
-#define HIGH_TEMP_1     100   // Stage 1: Fans 0 & 1
-#define HIGH_TEMP_2     150   // Stage 2: All fans
-#define FAN1_OFF_TEMP    50   // Fans 0 & 1 turn OFF below this
+#define HIGH_TEMP_1     90.0   // Stage 1: Fans 0 & 1
+#define HIGH_TEMP_2     90.0   // Stage 2: All fans
+#define FAN1_OFF_TEMP    70.0   // Fans 0 & 1 turn OFF below this
 #define HYSTERESIS        5   // Hysteresis for downward transitions
+
+#define FAN_MASK(x) (x & ((1 << NUM_FANS) - 1))
 
 SensorConfig sensorMap[] = {
   {0, SENSOR_VOLTAGE, "b_v"}, // battery voltage
@@ -81,8 +84,17 @@ static void selectMuxChannel(int channel) {
   digitalWrite(MUX_S3, (channel & 0x08));
 }
 
+inline void customShiftOut(uint8_t dataPin, uint8_t clockPin, uint8_t value){
+  for(int8_t i = 7; i >= 0; --i){
+    digitalWrite(dataPin, (value >> 1) & 1);
+    digitalWrite(clockPin, HIGH);
+    digitalWrite(clockPin, LOW);
+  }
+}
+
 static void setFanState(uint8_t mask) {
   shiftOut(SHIFT_DATA_PIN, SHIFT_CLOCK_PIN, MSBFIRST, mask);
+  // customShiftOut(SHIFT_DATA_PIN, SHIFT_CLOCK_PIN, mask);
   digitalWrite(SHIFT_LATCH_PIN, LOW);
   digitalWrite(SHIFT_LATCH_PIN, HIGH);
 }
@@ -99,15 +111,18 @@ static float getVoltage(float adcValue) {
   float vin = (vout + 0.18) / (R2 / (R1 + R2));
   // float vin = vout * (25.0 / 3.15);
   // vin = (vin / 4.95) * 24.75;
-  if (DEBUG) Serial.printf("Raw ADC: %f, Vout: %f V, Vin: %f V\n", adcValue, vout, vin);
-  return vin >= 2 ? round_float(vin, 2) : 0;
+  if (DEBUG) Serial.printf("Raw ADC: %.0f, Vout: %.2f V, Vin: %.2f V\n", adcValue, vout, vin);
+  return vin >= 5 ? round_float(vin, 2) : 0;
 }
 
-static float getCurrent(float adcValue) {
-  float voltage = (adcValue / ADC_RESOLUTION) * ADC_REF_VOLTAGE;
-  float current = (voltage - CURRENT_SENSOR_OFFSET) / CURRENT_SENSOR_SENSITIVITY;
-  if (DEBUG) Serial.printf("Raw ADC: %f, Voltage: %f V, Current: %f A\n", adcValue, voltage, current);
-  return current < 0.1 ? 0 : (round_float(current, 2)); // Clamp negative currents to 0
+static float getCurrent(float adcValue, int channel) {
+  float voltage = (adcValue / ADC_RESOLUTION) * 3.3;
+  // voltage = (voltage / 5.0) * 3.3;
+  float offset_voltage = (3.3 / 2); // ACS712 outputs 2.5V at 0A when powered by 5V
+  offset_voltage = channel == 1 ? 0.39 : channel == 3 ? 0.14 : 0.24; // Different sensors can have different offsets
+  float current = ((voltage < offset_voltage ? offset_voltage : voltage) - offset_voltage) / (CURRENT_SENSOR_SENSITIVITY);
+  if (DEBUG) Serial.printf("Raw ADC: %.0f, Voltage: %.2f V, Current: %.2f A\n", adcValue, voltage, current);
+  return current < 0.001 ? 0 : (round_float(current, 2)); // Clamp negative currents to 0
 }
 
 // -------- Setup --------
@@ -152,22 +167,27 @@ void monitorSensors() {
   if (DEBUG) Serial.printf("Temperature: %.2f °C\n", temp);
 
   // === 1. Determine desired state based on temperature ===
-  if (temp >= HIGH_TEMP_2) {
+  if (temp >= HIGH_TEMP_1) {
       desired_state = 2;
       desired_fans = ALL_FANS;
+      should_update = true;
   }
   else if (temp >= HIGH_TEMP_1 || (temp >= FAN1_OFF_TEMP && desired_state != 0)) {
       desired_state = 1;
-      desired_fans = STAGE_1_FANS;
+      desired_fans = ALL_FANS;
+      should_update = true;
   }
   else {
       desired_state = 0;
       desired_fans = 0x00;
+      should_update = true;
   }
 
   if (desired_state != current_state) {
     // --- Apply to physical fans ---
-      setFanState(active_fans);
+      setFanState(FAN_MASK(desired_fans));
+      // setFanState(desired_fans);
+      active_fans = desired_fans;
       // --- Debug ---
       if (DEBUG) {
           if (active_fans == ALL_FANS)
@@ -177,7 +197,7 @@ void monitorSensors() {
           else
               Serial.println("All Fans OFF");
       }
-      
+      current_state = desired_state;
   }
 
   // --- Update telemetry ---
@@ -194,7 +214,7 @@ void monitorSensors() {
   vTaskDelay(10 / portTICK_PERIOD_MS);
   // Serial.println(adcValue); 
   // This is the actual voltage at the MUX_SIG pin
-  float muxVoltage = (adcValue / ADC_RESOLUTION) * ADC_REF_VOLTAGE;
+  // float muxVoltage = (adcValue / ADC_RESOLUTION) * ADC_REF_VOLTAGE;
   // if (DEBUG) Serial.printf("Channel %d: %.2f V\n", channel, muxVoltage);
 
   float reading = 0.0;
@@ -209,7 +229,7 @@ void monitorSensors() {
 
     case SENSOR_CURRENT: {
       // The ACS712 output is directly read by the ADC, so use muxVoltage
-      reading = getCurrent(adcValue);
+      reading = getCurrent(adcValue, channel);
       break;
     }
 
@@ -221,7 +241,7 @@ void monitorSensors() {
 
     case SENSOR_GENERIC:
     default:
-      reading = muxVoltage;
+      // reading = muxVoltage;
       break;
   }
 
@@ -247,6 +267,6 @@ void monitorSensorsTask(void *pvParameters) {
     if(DEBUG) Serial.println("Reading sensors...");
     monitorSensors();
     if(DEBUG) Serial.println();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
